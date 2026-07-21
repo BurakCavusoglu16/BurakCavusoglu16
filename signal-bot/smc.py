@@ -34,6 +34,30 @@ def swing_points(candles, k=2):
     return highs, lows
 
 
+def structural_bias(candles, k=2):
+    """Kalıcı yapısal bias: HH oluşursa 'bull', LL oluşursa 'bear'.
+
+    Pullback'ler bias'ı bozmaz — ancak ters yönde bir swing (lower-low / higher-high)
+    yeni yapı kırınca yön döner. Bir trader'ın 'yapı bozulmadıkça trend sürer' mantığı.
+    """
+    sh, sl = swing_points(candles, k)
+    events = [(i, "H", candles[i]["h"]) for i in sh] + \
+             [(i, "L", candles[i]["l"]) for i in sl]
+    events.sort()
+    bias = "neutral"
+    prev_high = prev_low = None
+    for _, typ, price in events:
+        if typ == "H":
+            if prev_high is not None and price > prev_high:
+                bias = "bull"
+            prev_high = price
+        else:
+            if prev_low is not None and price < prev_low:
+                bias = "bear"
+            prev_low = price
+    return bias
+
+
 def market_structure(candles, k=2):
     """Trend yönü + son swing seviyeleri + BOS/CHoCH bayrakları döner."""
     sh, sl = swing_points(candles, k)

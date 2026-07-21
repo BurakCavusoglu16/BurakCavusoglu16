@@ -23,10 +23,27 @@ GitHub Actions (cron, 5 dk)  ->  bot.py  ->  Yahoo OHLCV çek
                              notify.send_telegram  ->  Telegram
 ```
 
-## Strateji — ICT / SMC motoru (`smc.py`)
+## İş akışı — Çok Zaman Dilimli (MTF) top-down (`mtf.py`)
 
-Basit gösterge kesişimi değil; kurumsal (Smart Money Concepts) confluence modeli.
-Her tetik ayrı birim testiyle doğrulanmıştır (`test_smc.py`).
+Gerçek trader mantığı: **önce büyük resim, sonra detay.**
+
+```
+HTF (1h)  →  BIAS: yapısal yön (HH/LL) + premium/discount + POI (FVG / Order Block)
+                 │
+                 ▼   fiyat, bias yönündeki bir HTF POI'sine geldi mi? (discount'ta)
+LTF (5m)  →  ONAY: likidite sweep + CHoCH + FVG entry  →  ENTRY / SL / TP
+```
+
+- **Sinyal ancak üç koşul hizalanınca üretilir:** (1) net HTF bias, (2) fiyat bias yönünde
+  bir HTF POI'sinin **içinde** ve doğru **discount/premium** bölgesinde, (3) LTF'de teyit
+  (sweep veya CHoCH). Alan oluşmadan ya da onay gelmeden **bekler** — tıpkı bir trader gibi.
+- **SL** LTF sweep/POI ötesinde (yapısal), **TP2** HTF likidite hedefinde.
+- Zaman dilimleri `config.json > mtf` (`htf_interval`, `ltf_interval`) ile ayarlanır.
+
+## Alt katman — ICT / SMC dedektörleri (`smc.py`)
+
+MTF motorunun kullandığı yapı taşları; her biri ayrı birim testiyle doğrulanmıştır
+(`test_smc.py`, `test_mtf.py`).
 
 | Bileşen | Ne yapar |
 |---|---|
@@ -39,12 +56,10 @@ Her tetik ayrı birim testiyle doğrulanmıştır (`test_smc.py`).
 | **Kill Zone** | Asya / Londra / New York / Londra Kapanış zaman pencereleri (UTC) |
 | **Forex Factory** | Yüksek etkili haber ±30 dk → **blackout** (işlem yok); yaklaşan haber → karta uyarı |
 
-**Yön mantığı:** SSL süpürüldü → LONG, BSL süpürüldü → SHORT (sweep yoksa BOS+displacement ile
-devam). **SL** süpürülen likiditenin ötesinde (yapısal). **TP** 1.5R / 2.5R + hedef likidite.
-**Skor:** confluence ağırlıkları toplanır (`config.json > smc.weights`), `min_confidence`
+**Skor:** confluence ağırlıkları toplanır (`config.json > mtf.weights`), `min_confidence`
 üstündeki **en yüksek güvenli tek** enstrüman kart olur.
 
-Kill zone'lar UTC dakika cinsinden (`config.json > smc.kill_zones`). Örn. Londra KZ
+Kill zone'lar UTC dakika cinsinden (`config.json > mtf.kill_zones`). Örn. Londra KZ
 `[420,600]` = 07:00–10:00 UTC = **10:00–13:00 TR**; New York KZ `[750,930]` = **15:30–18:30 TR**.
 
 Tüm eşikler `config.json` içinde; kodda sihirli sabit yok.

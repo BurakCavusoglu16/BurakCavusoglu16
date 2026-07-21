@@ -20,8 +20,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: SMC birim testleri
+      - name: SMC + MTF birim testleri
         working-directory: signal-bot
         run: |
           python test_smc.py
+          python test_mtf.py
           python bot.py --self-test

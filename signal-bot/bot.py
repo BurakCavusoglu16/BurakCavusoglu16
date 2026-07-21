@@ -25,6 +25,7 @@ import sys
 from datetime import datetime, timezone, timedelta
 
 import smc
+import mtf
 from data import fetch_ohlcv
 from notify import send_telegram
 from news import news_verdict, fetch_calendar
@@ -51,14 +52,18 @@ def build_card(inst, sig, now_tr, news_warn=None):
     risk = abs(sig["entry"] - sig["sl"])
     conf_lines = "\n".join(f"   • {c}" for c in sig["confluences"])
     kz = sig.get("kill_zone") or "seans dışı"
+    poi = sig.get("poi") or {}
+    poi_txt = f"{poi.get('kind','POI')} {fmt(poi.get('low'), d)}-{fmt(poi.get('high'), d)}" if poi else "—"
     lines = [
-        f"🎯 <b>EMİR KARTI — {inst['name']} {sig['direction']}</b>  ({inst_engine(sig)}, {now_tr:%H:%M} TR)",
+        f"🎯 <b>EMİR KARTI — {inst['name']} {sig['direction']}</b>  (MTF top-down, {now_tr:%H:%M} TR)",
+        f"🧭 HTF bias <b>{sig['direction']}</b> ({sig['trend']}/{sig.get('htf_zone','—')}) "
+        f"→ HTF POI {poi_txt} → LTF onay",
         "",
         f"{arrow} — <b>Giriş ~{fmt(sig['entry'], d)}</b>",
         f"🛑 SL: {fmt(sig['sl'], d)}   (risk ~{fmt(risk, d)} {pip})",
         f"✅ TP1: {fmt(sig['tp1'], d)}   (R:R {sig['rr1']}) → yarıyı kapat, SL girişe",
         f"✅ TP2: {fmt(sig['tp2'], d)}   (R:R {sig['rr2']})",
-        f"📐 GÜVEN: {sig['confidence']}/10 | Trend: {sig['trend']} | KillZone: {kz}"
+        f"📐 GÜVEN: {sig['confidence']}/10 | KillZone: {kz}"
         + (f" | RSI: {sig['rsi']}" if sig.get("rsi") is not None else ""),
     ]
     if sig.get("liq_target") is not None:
@@ -85,26 +90,28 @@ def inst_engine(sig):
 
 
 def scan(cfg, now_utc, events):
-    """Tüm enstrümanları tarar; blackout'ları atlar. (inst, sig, warn) adayları döner."""
+    """Tüm enstrümanları MTF top-down tarar; blackout'ları atlar.
+    (inst, sig, warn) adayları döner."""
     candidates = []
-    smc_cfg = cfg.get("smc", {})
+    m = cfg["mtf"]
     for inst in cfg["instruments"]:
         nv = news_verdict(inst["name"], now_utc, cfg, events)
         if nv["blackout"]:
             print(f"[haber]  {inst['name']} — blackout, atlandı ({nv['warn']})")
             continue
         try:
-            candles = fetch_ohlcv(inst["yahoo"], cfg["interval"], cfg["range"])
+            htf = fetch_ohlcv(inst["yahoo"], m["htf_interval"], m["htf_range"])
+            ltf = fetch_ohlcv(inst["yahoo"], m["ltf_interval"], m["ltf_range"])
         except Exception as e:  # noqa: BLE001
             print(f"[uyarı] {inst['name']} verisi çekilemedi: {e}", file=sys.stderr)
             continue
-        sig = smc.analyze_smc(candles, now_utc, smc_cfg)
+        sig = mtf.analyze_mtf(htf, ltf, now_utc, m)
         if sig:
             candidates.append((inst, sig, nv["warn"]))
             print(f"[sinyal] {inst['name']} {sig['direction']} güven {sig['confidence']} "
                   f"| {', '.join(sig['confluences'][:3])}")
         else:
-            print(f"[nötr]  {inst['name']} — SMC confluence yetersiz")
+            print(f"[nötr]  {inst['name']} — HTF bias/POI/LTF onayı hizalanmadı")
     return candidates
 
 
@@ -155,13 +162,18 @@ def main():
 
 
 def _self_test():
-    """Ağsız uçtan uca: SMC dedektör testlerini çalıştır + kart üret."""
+    """Ağsız uçtan uca: SMC + MTF dedektör testleri + örnek MTF kartı."""
     import test_smc
+    import test_mtf
     test_smc.run()
-    cs = test_smc._build_long_scenario()
+    print()
+    test_mtf.run()
+
+    htf = test_mtf.build_htf_bullish()
+    ltf = test_smc._build_long_scenario()
     t = datetime(2026, 7, 21, 8, 30, tzinfo=timezone.utc)
     cfg = load_config()
-    sig = smc.analyze_smc(cs, t, cfg["smc"])
+    sig = mtf.analyze_mtf(htf, ltf, t, cfg["mtf"])
     assert sig and sig["direction"] == "LONG"
     card = build_card({"name": "US100", "digits": 1, "pip": "puan"},
                       sig, t.astimezone(TR),
