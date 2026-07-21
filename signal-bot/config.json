@@ -1,0 +1,24 @@
+{
+  "interval": "5m",
+  "range": "5d",
+  "min_confidence": 6.5,
+  "instruments": [
+    { "name": "US100", "yahoo": "^NDX",    "digits": 1, "pip": "puan" },
+    { "name": "GER40", "yahoo": "^GDAXI",  "digits": 1, "pip": "puan" },
+    { "name": "JPN225", "yahoo": "^N225",  "digits": 0, "pip": "puan" },
+    { "name": "XAUUSD", "yahoo": "GC=F",   "digits": 2, "pip": "$" }
+  ],
+  "strategy": {
+    "ema_fast": 9,
+    "ema_mid": 21,
+    "ema_slow": 50,
+    "ema_bias": 200,
+    "rsi_period": 14,
+    "atr_period": 14,
+    "sl_atr_mult": 1.0,
+    "tp1_atr_mult": 1.5,
+    "tp2_atr_mult": 2.5,
+    "rsi_long_max": 72,
+    "rsi_short_min": 28
+  }
+}

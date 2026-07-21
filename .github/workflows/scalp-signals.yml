@@ -1,0 +1,38 @@
+name: Scalp Sinyal Botu
+
+# Arka planda "sürekli çalışan" kısım burasıdır: GitHub'ın sunucularında,
+# zamanlanmış olarak koşar. Bu depo ephemeral bir bulut oturumu değil —
+# workflow default dala (main) merge edilince cron aktifleşir.
+#
+# Gerekli secrets (Settings > Secrets and variables > Actions):
+#   TELEGRAM_BOT_TOKEN
+#   TELEGRAM_CHAT_ID
+
+on:
+  workflow_dispatch: {}        # elle "Run workflow" ile test edebilirsin
+  schedule:
+    # UTC. Piyasa saatlerini kabaca kapsayacak şekilde her 5 dakikada bir.
+    # (GitHub cron en az 5 dk aralık destekler ve yoğunlukta birkaç dk gecikebilir.)
+    - cron: "*/5 6-21 * * 1-5"
+
+concurrency:
+  group: scalp-signals
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Sinyal taraması ve Telegram bildirimi
+        working-directory: signal-bot
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python bot.py
