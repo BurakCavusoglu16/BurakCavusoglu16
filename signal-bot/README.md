@@ -23,17 +23,31 @@ GitHub Actions (cron, 5 dk)  ->  bot.py  ->  Yahoo OHLCV çek
                              notify.send_telegram  ->  Telegram
 ```
 
-## Strateji (5dk scalp)
+## Strateji — ICT / SMC motoru (`smc.py`)
 
-| Bileşen | Kural |
+Basit gösterge kesişimi değil; kurumsal (Smart Money Concepts) confluence modeli.
+Her tetik ayrı birim testiyle doğrulanmıştır (`test_smc.py`).
+
+| Bileşen | Ne yapar |
 |---|---|
-| Trend bias | EMA50 vs EMA200 + fiyatın EMA50'ye konumu |
-| Giriş tetiği | EMA9 × EMA21 **taze** kesişim (son kapanan mumda) |
-| Momentum filtresi | RSI14 aşırı bölgede değil |
-| SL / TP | ATR14 tabanlı: SL 1.0×ATR, TP1 1.5×ATR, TP2 2.5×ATR |
-| Seçim | Eşik üstü sinyaller içinden **en yüksek güvenli tek** enstrüman |
+| **Market Structure** | Swing noktaları → BOS (Break of Structure) / CHoCH (Change of Character) |
+| **Liquidity Sweep** | Swing dip/tepe altına-üstüne fitil + geri kapanış = stop avı ("Judas"). Birincil tetik. |
+| **Displacement** | ATR'ye göre güçlü impuls mumu (kurumsal niyet) |
+| **FVG** | 3-mum Fair Value Gap (imbalance) = giriş bölgesi |
+| **IFVG** | İhlal edilip polaritesi dönen FVG (inverse) = destek/direnç |
+| **Order Block** | İmpulstan önceki son zıt mum = giriş bölgesi |
+| **Kill Zone** | Asya / Londra / New York / Londra Kapanış zaman pencereleri (UTC) |
+| **Forex Factory** | Yüksek etkili haber ±30 dk → **blackout** (işlem yok); yaklaşan haber → karta uyarı |
 
-Tüm eşikler `config.json` içinde; kod tarafında sihirli sabit yok.
+**Yön mantığı:** SSL süpürüldü → LONG, BSL süpürüldü → SHORT (sweep yoksa BOS+displacement ile
+devam). **SL** süpürülen likiditenin ötesinde (yapısal). **TP** 1.5R / 2.5R + hedef likidite.
+**Skor:** confluence ağırlıkları toplanır (`config.json > smc.weights`), `min_confidence`
+üstündeki **en yüksek güvenli tek** enstrüman kart olur.
+
+Kill zone'lar UTC dakika cinsinden (`config.json > smc.kill_zones`). Örn. Londra KZ
+`[420,600]` = 07:00–10:00 UTC = **10:00–13:00 TR**; New York KZ `[750,930]` = **15:30–18:30 TR**.
+
+Tüm eşikler `config.json` içinde; kodda sihirli sabit yok.
 
 ## Kurulum (canlı hale getirmek için 3 adım)
 
@@ -50,7 +64,8 @@ Tüm eşikler `config.json` içinde; kod tarafında sihirli sabit yok.
 
 ```bash
 cd signal-bot
-python bot.py --self-test     # ağsız: strateji mantığını doğrular
+python bot.py --self-test     # ağsız: tüm SMC dedektörlerini test eder + örnek kart basar
+python test_smc.py            # sadece SMC birim testleri
 python bot.py --dry-run       # veri çeker, kartı ekrana basar (göndermez)
 python bot.py                 # sinyal varsa Telegram'a gönderir (env secrets gerekir)
 ```
