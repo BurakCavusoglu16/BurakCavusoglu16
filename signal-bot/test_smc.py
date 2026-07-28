@@ -58,6 +58,35 @@ def test_displacement():
     assert d and d["direction"] == "up", f"displacement up beklendi: {d}"
 
 
+def test_rejection_block_bull():
+    """Swing dibinde uzun alt fitilli mum -> bullish RB [fitil dibi, gövde dibi]."""
+    cs = [C(20, 21, 19, 20), C(20, 20, 18, 19),
+          C(16.5, 17, 12, 16.4),            # pin bar: alt fitil 4.4 >> gövde 0.1
+          C(16.4, 18, 16, 17.5), C(17.5, 19, 17, 18.5),
+          C(18.5, 19, 17.5, 18), C(18, 19, 17.5, 18.5)]
+    rb = smc.rejection_block(cs, "LONG", k=2, lookback=20, wick_ratio=1.0)
+    assert rb and abs(rb["low"] - 12) < 1e-9 and abs(rb["high"] - 16.4) < 1e-9, rb
+
+
+def test_rejection_block_bear():
+    """Swing tepesinde uzun üst fitilli mum -> bearish RB [gövde tepesi, fitil tepesi]."""
+    cs = [C(10, 11, 9, 10), C(11, 12, 10, 11.5),
+          C(12, 18, 11.8, 12.2),            # üst fitil 5.8 >> gövde 0.2
+          C(12.2, 13, 11, 11.5), C(11.5, 12, 10, 10.5),
+          C(10.5, 11, 10, 10.2), C(10.2, 11, 9.8, 10)]
+    rb = smc.rejection_block(cs, "SHORT", k=2, lookback=20, wick_ratio=1.0)
+    assert rb and abs(rb["low"] - 12.2) < 1e-9 and abs(rb["high"] - 18) < 1e-9, rb
+
+
+def test_rejection_block_filter():
+    """Dev gövde + minik fitil RB SAYILMAZ (belirginlik filtresi)."""
+    cs = [C(20, 21, 19, 20), C(20, 20, 18, 19),
+          C(17, 17.1, 13, 13.1),
+          C(13.1, 15, 13, 14.5), C(14.5, 16, 14, 15.5),
+          C(15.5, 16, 15, 15.8), C(15.8, 16.5, 15.5, 16)]
+    assert smc.rejection_block(cs, "LONG", 2, 20, 1.0) is None
+
+
 def test_kill_zone():
     windows = [[420, 600, "Londra"], [750, 930, "NewYork"]]
     t = datetime(2026, 7, 21, 8, 30, tzinfo=timezone.utc)  # 08:30 = 510 dk
@@ -116,6 +145,9 @@ def run():
     test_fvg_bear()
     test_liquidity_sweep_ssl()
     test_displacement()
+    test_rejection_block_bull()
+    test_rejection_block_bear()
+    test_rejection_block_filter()
     test_kill_zone()
     sig = test_full_long_signal()
     print("ALL SMC TESTS OK")

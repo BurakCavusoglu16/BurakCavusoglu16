@@ -237,6 +237,41 @@ def order_block(candles, direction, disp_bar_i, lookback=6):
     return None
 
 
+# ----------------------------- Rejection Block -----------------------------
+
+def rejection_block(candles, direction, k=2, lookback=20, wick_ratio=1.0):
+    """En taze rejection block'u (wick-tabanlı arz/talep bölgesi) döner.
+
+    Order Block gövdeyi kullanır; Rejection Block swing tepe/dipteki belirgin
+    REDDETME FİTİLİNİ kullanır — fiyatın gidip geri itildiği aralık.
+
+    LONG  -> swing dibinde uzun ALT fitilli mum -> talep: [low, min(open,close)]
+    SHORT -> swing tepesinde uzun ÜST fitilli mum -> arz:  [max(open,close), high]
+    'wick_ratio': fitil, gövdenin en az bu katı kadar olmalı (belirginlik filtresi).
+    """
+    sh, sl = swing_points(candles, k)
+    n = len(candles)
+    if direction == "LONG":
+        for i in reversed(sl):
+            if i < n - lookback:
+                break
+            c = candles[i]
+            body = abs(c["c"] - c["o"])
+            lower_wick = min(c["o"], c["c"]) - c["l"]
+            if lower_wick > 0 and lower_wick >= wick_ratio * body:
+                return {"low": c["l"], "high": min(c["o"], c["c"]), "i": i}
+    else:
+        for i in reversed(sh):
+            if i < n - lookback:
+                break
+            c = candles[i]
+            body = abs(c["c"] - c["o"])
+            upper_wick = c["h"] - max(c["o"], c["c"])
+            if upper_wick > 0 and upper_wick >= wick_ratio * body:
+                return {"low": max(c["o"], c["c"]), "high": c["h"], "i": i}
+    return None
+
+
 # ----------------------------- Kill Zone -----------------------------
 
 def in_kill_zone(now_utc, windows):
@@ -293,6 +328,8 @@ def analyze_smc(candles, now_utc, cfg=None):
     fvg = active_fvg(candles, direction, cfg.get("fvg_lookback", 30))
     ifvg = inverse_fvg(candles, direction, cfg.get("fvg_lookback", 40))
     ob = order_block(candles, direction, disp["bar_i"] if disp else None)
+    rb = rejection_block(candles, direction, k, cfg.get("rb_lookback", 20),
+                         cfg.get("rb_wick_ratio", 1.0))
 
     # --- Confluence skoru (ağırlıklar config'ten) ---
     w = cfg.get("weights", {})
@@ -322,6 +359,9 @@ def analyze_smc(candles, now_utc, cfg=None):
     if ob:
         score += w.get("order_block", 1.5)
         confluences.append(f"Order Block {ob['low']:.2f}-{ob['high']:.2f}")
+    if rb:
+        score += w.get("rejection_block", 1.5)
+        confluences.append(f"Rejection Block {rb['low']:.2f}-{rb['high']:.2f} (fitil reddi)")
     if r is not None:
         if direction == "LONG" and r < cfg.get("rsi_long_max", 75):
             score += w.get("rsi", 0.5)
@@ -333,11 +373,18 @@ def analyze_smc(candles, now_utc, cfg=None):
     # --- Giriş / SL / TP (yapı + likidite temelli) ---
     entry = price
     buf = cfg.get("sl_buffer_atr", 0.25) * a
+    # SL referansı: sweep ekstremi / rejection block fitili / order block — en korunaklısı
     if direction == "LONG":
-        stop_ref = sweep["extreme"] if sweep else (ob["low"] if ob else price - a)
+        refs = [x for x in [sweep["extreme"] if sweep else None,
+                            rb["low"] if rb else None,
+                            ob["low"] if ob else None, price - a] if x is not None]
+        stop_ref = min(refs)
         sl = min(stop_ref, price - 0.5 * a) - buf
     else:
-        stop_ref = sweep["extreme"] if sweep else (ob["high"] if ob else price + a)
+        refs = [x for x in [sweep["extreme"] if sweep else None,
+                            rb["high"] if rb else None,
+                            ob["high"] if ob else None, price + a] if x is not None]
+        stop_ref = max(refs)
         sl = max(stop_ref, price + 0.5 * a) + buf
 
     risk = abs(entry - sl)

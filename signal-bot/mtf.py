@@ -66,6 +66,12 @@ def htf_bias(candles, cfg=None):
             mid = (ob["low"] + ob["high"]) / 2.0
             if (bias == "LONG" and mid <= eq) or (bias == "SHORT" and mid >= eq):
                 pois.append({"kind": "OB", "low": ob["low"], "high": ob["high"], "dir": want})
+        rb = smc.rejection_block(candles, bias, k, cfg.get("rb_lookback", 20),
+                                 cfg.get("rb_wick_ratio", 1.0))
+        if rb:
+            mid = (rb["low"] + rb["high"]) / 2.0
+            if (bias == "LONG" and mid <= eq) or (bias == "SHORT" and mid >= eq):
+                pois.append({"kind": "RB", "low": rb["low"], "high": rb["high"], "dir": want})
 
     # Aktif POI: fiyat gerçekten içinde VE doğru premium/discount bölgesinde
     active = None
@@ -106,11 +112,13 @@ def ltf_confirmation(candles, bias, cfg=None):
 
     fvg = smc.active_fvg(candles, bias, cfg.get("fvg_lookback", 30))
     ob = smc.order_block(candles, bias, disp["bar_i"] if disp else None)
+    rb = smc.rejection_block(candles, bias, k, cfg.get("rb_lookback", 20),
+                             cfg.get("rb_wick_ratio", 1.0))
     return {
         "sweep": sweep if sweep_ok else None,
         "choch": ms["choch"] if choch_ok else None,
         "bos": (ms["bos_up"] if bias == "LONG" else ms["bos_down"]),
-        "fvg": fvg, "ob": ob, "atr": a, "ms": ms,
+        "fvg": fvg, "ob": ob, "rb": rb, "atr": a, "ms": ms,
     }
 
 
@@ -147,11 +155,13 @@ def analyze_mtf(htf_candles, ltf_candles, now_utc, cfg=None):
     if bias == "LONG":
         stop_ref = min(x for x in [
             conf["sweep"]["extreme"] if conf["sweep"] else None,
+            conf["rb"]["low"] if conf["rb"] else None,
             poi["low"], price - 0.5 * a] if x is not None)
         sl = stop_ref - buf
     else:
         stop_ref = max(x for x in [
             conf["sweep"]["extreme"] if conf["sweep"] else None,
+            conf["rb"]["high"] if conf["rb"] else None,
             poi["high"], price + 0.5 * a] if x is not None)
         sl = stop_ref + buf
 
@@ -193,6 +203,9 @@ def analyze_mtf(htf_candles, ltf_candles, now_utc, cfg=None):
     if conf["ob"]:
         score += w.get("ltf_ob", 1.0)
         confl.append(f"LTF Order Block {conf['ob']['low']:.2f}-{conf['ob']['high']:.2f}")
+    if conf["rb"]:
+        score += w.get("ltf_rb", 1.5)
+        confl.append(f"LTF Rejection Block {conf['rb']['low']:.2f}-{conf['rb']['high']:.2f} (fitil reddi)")
     score = round(min(score, 10.0), 1)
 
     return {
