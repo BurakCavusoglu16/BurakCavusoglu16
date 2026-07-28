@@ -1,0 +1,73 @@
+name: Backtest
+
+# Stratejiyi gerçek geçmiş veriyle test eder (runner'ın açık interneti var).
+# Actions > Backtest > Run workflow ile elle çalıştırılır.
+
+on:
+  # Not: workflow_dispatch yalnızca default dalda görünür. Bu dalda sonuç
+  # alabilmek için backtest.py/workflow değiştiğinde push'ta da koşar.
+  push:
+    paths:
+      - "signal-bot/backtest.py"
+      - ".github/workflows/backtest.yml"
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: "Enstrüman (US100, GER40, JPN225, XAUUSD) — boş bırakırsan hepsi"
+        required: false
+        default: ""
+      ltf:
+        description: "Düşük zaman dilimi (5m, 15m, 1h)"
+        required: false
+        default: "5m"
+      htf:
+        description: "Yüksek zaman dilimi (1h, 4h, 1d)"
+        required: false
+        default: "1h"
+      range:
+        description: "LTF veri aralığı (5m için max 60d)"
+        required: false
+        default: "60d"
+      min_conf:
+        description: "Minimum güven eşiği"
+        required: false
+        default: "6.0"
+      entry:
+        description: "Giriş modu: market | mt (RB Mean Threshold limit)"
+        required: false
+        default: "market"
+      min_rr:
+        description: "TP2 R:R alt sınırı (yüksek R:R seçiciliği)"
+        required: false
+        default: "2.0"
+      max_per_day:
+        description: "Günlük işlem tavanı"
+        required: false
+        default: "3"
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Mantık doğrulaması (ağsız)
+        working-directory: signal-bot
+        run: python backtest.py --self-test
+
+      - name: Backtest çalıştır
+        working-directory: signal-bot
+        run: |
+          LTF="${{ inputs.ltf }}"; HTF="${{ inputs.htf }}"; RNG="${{ inputs.range }}"
+          CONF="${{ inputs.min_conf }}"; ENT="${{ inputs.entry }}"
+          RR="${{ inputs.min_rr }}"; MPD="${{ inputs.max_per_day }}"
+          ARGS="--ltf ${LTF:-5m} --htf ${HTF:-1h} --range ${RNG:-60d} --min-conf ${CONF:-6.0} --entry ${ENT:-market} --min-rr ${RR:-2.0} --max-per-day ${MPD:-3}"
+          if [ -n "${{ inputs.symbol }}" ]; then
+            python backtest.py --symbol "${{ inputs.symbol }}" $ARGS
+          else
+            python backtest.py --all $ARGS
+          fi

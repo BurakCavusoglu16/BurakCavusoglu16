@@ -1,0 +1,66 @@
+{
+  "min_confidence": 7.0,
+  "instruments": [
+    { "name": "US100",  "yahoo": "^NDX",   "digits": 1, "pip": "puan" },
+    { "name": "GER40",  "yahoo": "^GDAXI", "digits": 1, "pip": "puan" },
+    { "name": "JPN225", "yahoo": "^N225",  "digits": 0, "pip": "puan" },
+    { "name": "XAUUSD", "yahoo": "GC=F",   "digits": 2, "pip": "$" }
+  ],
+
+  "news_blackout_min": 30,
+  "news_warn_min": 90,
+
+  "mtf": {
+    "htf_interval": "1h",
+    "htf_range": "1mo",
+    "ltf_interval": "5m",
+    "ltf_range": "5d",
+
+    "htf": {
+      "min_bars": 60,
+      "swing_k": 2,
+      "range_lookback": 60,
+      "fvg_lookback": 40,
+      "atr_period": 14,
+      "min_fvg_atr": 0.5,
+      "disp_mult": 1.5,
+      "disp_lookback": 8,
+      "rb_lookback": 20,
+      "rb_wick_ratio": 1.0,
+      "breaker_lookback": 40
+    },
+    "ltf": {
+      "min_bars": 80,
+      "swing_k": 2,
+      "sweep_lookback": 12,
+      "fvg_lookback": 30,
+      "atr_period": 14,
+      "disp_mult": 1.3,
+      "disp_lookback": 5,
+      "sl_buffer_atr": 0.25,
+      "rb_lookback": 20,
+      "rb_wick_ratio": 1.0,
+      "breaker_lookback": 40
+    },
+
+    "kill_zones": [
+      [0,   180, "Asya KZ"],
+      [420, 600, "Londra KZ"],
+      [750, 930, "New York KZ"],
+      [840, 960, "Londra Kapanış"]
+    ],
+
+    "weights": {
+      "kill_zone": 1.5,
+      "htf_bias": 2.0,
+      "premium_discount": 1.5,
+      "htf_poi": 2.0,
+      "ltf_sweep": 2.0,
+      "ltf_choch": 1.5,
+      "ltf_fvg": 1.5,
+      "ltf_ob": 1.0,
+      "ltf_rb": 1.5,
+      "ltf_breaker": 1.5
+    }
+  }
+}
