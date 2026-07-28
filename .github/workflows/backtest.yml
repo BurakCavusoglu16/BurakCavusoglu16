@@ -4,6 +4,12 @@ name: Backtest
 # Actions > Backtest > Run workflow ile elle çalıştırılır.
 
 on:
+  # Not: workflow_dispatch yalnızca default dalda görünür. Bu dalda sonuç
+  # alabilmek için backtest.py/workflow değiştiğinde push'ta da koşar.
+  push:
+    paths:
+      - "signal-bot/backtest.py"
+      - ".github/workflows/backtest.yml"
   workflow_dispatch:
     inputs:
       symbol:
@@ -48,7 +54,9 @@ jobs:
       - name: Backtest çalıştır
         working-directory: signal-bot
         run: |
-          ARGS="--ltf ${{ inputs.ltf }} --htf ${{ inputs.htf }} --range ${{ inputs.range }} --min-conf ${{ inputs.min_conf }} --entry ${{ inputs.entry }}"
+          LTF="${{ inputs.ltf }}"; HTF="${{ inputs.htf }}"; RNG="${{ inputs.range }}"
+          CONF="${{ inputs.min_conf }}"; ENT="${{ inputs.entry }}"
+          ARGS="--ltf ${LTF:-5m} --htf ${HTF:-1h} --range ${RNG:-60d} --min-conf ${CONF:-6.0} --entry ${ENT:-market}"
           if [ -n "${{ inputs.symbol }}" ]; then
             python backtest.py --symbol "${{ inputs.symbol }}" $ARGS
           else
