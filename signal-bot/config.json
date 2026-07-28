@@ -26,7 +26,8 @@
       "disp_mult": 1.5,
       "disp_lookback": 8,
       "rb_lookback": 20,
-      "rb_wick_ratio": 1.0
+      "rb_wick_ratio": 1.0,
+      "breaker_lookback": 40
     },
     "ltf": {
       "min_bars": 80,
@@ -38,7 +39,8 @@
       "disp_lookback": 5,
       "sl_buffer_atr": 0.25,
       "rb_lookback": 20,
-      "rb_wick_ratio": 1.0
+      "rb_wick_ratio": 1.0,
+      "breaker_lookback": 40
     },
 
     "kill_zones": [
@@ -57,7 +59,8 @@
       "ltf_choch": 1.5,
       "ltf_fvg": 1.5,
       "ltf_ob": 1.0,
-      "ltf_rb": 1.5
+      "ltf_rb": 1.5,
+      "ltf_breaker": 1.5
     }
   }
 }

@@ -59,23 +59,29 @@ def test_displacement():
 
 
 def test_rejection_block_bull():
-    """Swing dibinde uzun alt fitilli mum -> bullish RB [fitil dibi, gövde dibi]."""
+    """Swing dibi süpürülüp pin bar ile reddedilmiş -> bullish RB [fitil dibi, gövde dibi]."""
     cs = [C(20, 21, 19, 20), C(20, 20, 18, 19),
-          C(16.5, 17, 12, 16.4),            # pin bar: alt fitil 4.4 >> gövde 0.1
-          C(16.4, 18, 16, 17.5), C(17.5, 19, 17, 18.5),
-          C(18.5, 19, 17.5, 18), C(18, 19, 17.5, 18.5)]
+          C(19, 19.5, 14, 15),              # swing dip @2 (low=14) = likidite havuzu
+          C(15, 17, 15, 16.5), C(16.5, 18, 16, 17.5),
+          C(17.5, 18, 17, 17.8), C(17.8, 18.2, 17.2, 18),
+          C(16.5, 17, 12, 16.4),            # pin bar: 14'ü SÜPÜRDÜ, fitil 4.4 >> gövde 0.1
+          C(16.4, 18, 16, 17.5), C(17.5, 19, 17, 18.5)]
     rb = smc.rejection_block(cs, "LONG", k=2, lookback=20, wick_ratio=1.0)
     assert rb and abs(rb["low"] - 12) < 1e-9 and abs(rb["high"] - 16.4) < 1e-9, rb
+    assert rb["swept"] is True
 
 
 def test_rejection_block_bear():
-    """Swing tepesinde uzun üst fitilli mum -> bearish RB [gövde tepesi, fitil tepesi]."""
-    cs = [C(10, 11, 9, 10), C(11, 12, 10, 11.5),
-          C(12, 18, 11.8, 12.2),            # üst fitil 5.8 >> gövde 0.2
-          C(12.2, 13, 11, 11.5), C(11.5, 12, 10, 10.5),
-          C(10.5, 11, 10, 10.2), C(10.2, 11, 9.8, 10)]
+    """Swing tepesi süpürülüp reddedilmiş -> bearish RB [gövde tepesi, fitil tepesi]."""
+    cs = [C(10, 11, 9, 10), C(11, 13, 10, 11.5),
+          C(12, 15, 11.5, 12),              # swing tepe @2 (high=15) = likidite havuzu
+          C(12, 13, 11, 11.5), C(11.5, 12.5, 11, 12),
+          C(12, 12.8, 11.5, 12.3), C(12.3, 13, 11.8, 12.5),
+          C(12, 18, 11.8, 12.2),            # 15'i SÜPÜRDÜ, üst fitil 5.8 >> gövde 0.2
+          C(12.2, 13, 11, 11.5), C(11.5, 12, 10, 10.5)]
     rb = smc.rejection_block(cs, "SHORT", k=2, lookback=20, wick_ratio=1.0)
     assert rb and abs(rb["low"] - 12.2) < 1e-9 and abs(rb["high"] - 18) < 1e-9, rb
+    assert rb["swept"] is True
 
 
 def test_rejection_block_filter():
@@ -139,6 +145,48 @@ def test_full_long_signal():
     return sig
 
 
+def test_rejection_block_requires_sweep():
+    """Uzun fitil var ama likidite süpürmesi YOK -> RB kabul edilmemeli (kanonik ICT)."""
+    cs = [C(20, 21, 19, 20), C(20, 20.5, 18, 19),
+          C(19, 19.5, 15, 16),               # dip @2 (low=15)
+          C(16, 18, 16, 17), C(17, 19, 16, 18),
+          C(18, 19, 17, 18), C(18, 19, 17, 18),
+          # uzun alt fitilli mum AMA 15'in altına inmiyor (sweep yok)
+          C(18, 18.5, 16.0, 18.2)]
+    rb = smc.rejection_block(cs, "LONG", k=2, lookback=20, wick_ratio=1.0)
+    assert rb is None, f"sweep yokken RB üretilmemeli: {rb}"
+
+
+def test_rejection_block_with_sweep():
+    """Fitil önceki dibi süpürüp geri dönmüş -> geçerli bullish RB + MT."""
+    cs = [C(20, 21, 19, 20), C(20, 20.5, 18, 19),
+          C(19, 19.5, 15, 16),               # dip @2 (low=15)
+          C(16, 18, 16, 17), C(17, 19, 16, 18),
+          C(18, 19, 17, 18), C(18, 19, 17, 18),
+          C(18, 18.5, 14.0, 18.2),           # 15'in altını süpürdü, üstte kapattı
+          C(18.2, 19, 18, 18.8), C(18.8, 19.5, 18.5, 19.2)]
+    rb = smc.rejection_block(cs, "LONG", k=2, lookback=20, wick_ratio=1.0)
+    assert rb is not None, "sweep'li uzun fitilde RB bekleniyordu"
+    assert rb["swept"] is True
+    assert rb["low"] == 14.0
+    # Mean Threshold = (fitil ucu + kapanış)/2 = (14.0 + 18.2)/2 = 16.1
+    assert abs(rb["mt"] - 16.1) < 1e-9, rb["mt"]
+
+
+def test_breaker_block_bullish():
+    """Swing tepesindeki arz yukarı kırılınca destek (bullish breaker) olmalı."""
+    cs = [C(10, 11, 9, 10), C(11, 12, 10, 11),
+          C(12, 15, 11, 12.5),               # swing tepe @2 (high=15, body top=12.5)
+          C(12, 12.5, 10, 10.5), C(10.5, 11, 9, 9.5),
+          C(9.5, 10, 9, 9.8), C(9.8, 11, 9.5, 10.5),
+          C(10.5, 16, 10.4, 15.8),           # bölgenin üstünde kapandı -> kırılım
+          C(15.8, 16.2, 13.0, 13.5)]         # geri çekilme (bölgeye dönüş)
+    bb = smc.breaker_block(cs, "LONG", k=2, lookback=40)
+    assert bb is not None, "bullish breaker bekleniyordu"
+    assert bb["low"] == 12.0 and bb["high"] == 15.0, (bb["low"], bb["high"])
+    assert bb["in_zone"] is True, "fiyat 13.5 bölge içinde olmalı"
+
+
 def run():
     test_swings()
     test_fvg_bull()
@@ -149,6 +197,9 @@ def run():
     test_rejection_block_bear()
     test_rejection_block_filter()
     test_kill_zone()
+    test_rejection_block_requires_sweep()
+    test_rejection_block_with_sweep()
+    test_breaker_block_bullish()
     sig = test_full_long_signal()
     print("ALL SMC TESTS OK")
     print("örnek sinyal:", {k: sig[k] for k in

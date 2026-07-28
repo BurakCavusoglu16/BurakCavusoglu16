@@ -237,6 +237,42 @@ def order_block(candles, direction, disp_bar_i, lookback=6):
     return None
 
 
+# ----------------------------- Breaker Block -----------------------------
+
+def breaker_block(candles, direction, k=2, lookback=40):
+    """Kırılıp polaritesi dönen bölge (breaker). En taze olanı döner.
+
+    Order Block "çalışmayıp" ters yöne kırıldığında polaritesi döner:
+      LONG  -> swing TEPESİNDEKİ arz bölgesi yukarı kırıldı  -> artık DESTEK
+      SHORT -> swing DİBİNDEKİ talep bölgesi aşağı kırıldı   -> artık DİRENÇ
+    IFVG'nin (inverse FVG) order-block karşılığıdır. 'Kırılım' = gövde kapanışı.
+    """
+    sh, sl = swing_points(candles, k)
+    n = len(candles)
+    swings = sh if direction == "LONG" else sl
+
+    for i in reversed(swings):
+        if i < n - lookback:
+            break
+        c = candles[i]
+        if direction == "LONG":
+            zone_low, zone_high = min(c["o"], c["c"]), c["h"]
+            # sonraki bir mum bölgenin üstünde KAPANDI mı (yukarı kırılım)
+            for b in range(i + 1, n):
+                if candles[b]["c"] > zone_high:
+                    price = candles[-1]["c"]
+                    return {"low": zone_low, "high": zone_high, "i": i,
+                            "broken_at": b, "in_zone": zone_low <= price <= zone_high}
+        else:
+            zone_low, zone_high = c["l"], max(c["o"], c["c"])
+            for b in range(i + 1, n):
+                if candles[b]["c"] < zone_low:
+                    price = candles[-1]["c"]
+                    return {"low": zone_low, "high": zone_high, "i": i,
+                            "broken_at": b, "in_zone": zone_low <= price <= zone_high}
+    return None
+
+
 # ----------------------------- Rejection Block -----------------------------
 
 def rejection_block(candles, direction, k=2, lookback=20, wick_ratio=1.0):
@@ -245,30 +281,55 @@ def rejection_block(candles, direction, k=2, lookback=20, wick_ratio=1.0):
     Order Block gövdeyi kullanır; Rejection Block swing tepe/dipteki belirgin
     REDDETME FİTİLİNİ kullanır — fiyatın gidip geri itildiği aralık.
 
-    LONG  -> swing dibinde uzun ALT fitilli mum -> talep: [low, min(open,close)]
-    SHORT -> swing tepesinde uzun ÜST fitilli mum -> arz:  [max(open,close), high]
-    'wick_ratio': fitil, gövdenin en az bu katı kadar olmalı (belirginlik filtresi).
+    Kanonik ICT tanımı üç şart arar (hepsi burada uygulanır):
+      1) LİKİDİTE SÜPÜRME: fitil, önceki bir swing tepe/dibinin ötesine taşmalı
+         (durmuş stop'ları alıp geri dönmeli). RB neredeyse her zaman sweep sonrası oluşur.
+      2) BELİRGİN FİTİL: fitil >= wick_ratio × gövde (sıradan mumu eler).
+      3) TAZELİK: bölge oluştuktan sonra henüz mitigate edilmemiş olmalı.
+
+    LONG  -> swing dibinde uzun ALT fitil -> talep: [low, min(open,close)]
+    SHORT -> swing tepesinde uzun ÜST fitil -> arz:  [max(open,close), high]
+
+    Dönen 'mt' = Mean Threshold = (fitil ucu + kapanış) / 2 → asıl ICT giriş seviyesi.
     """
     sh, sl = swing_points(candles, k)
     n = len(candles)
-    if direction == "LONG":
-        for i in reversed(sl):
-            if i < n - lookback:
-                break
-            c = candles[i]
-            body = abs(c["c"] - c["o"])
-            lower_wick = min(c["o"], c["c"]) - c["l"]
-            if lower_wick > 0 and lower_wick >= wick_ratio * body:
-                return {"low": c["l"], "high": min(c["o"], c["c"]), "i": i}
-    else:
-        for i in reversed(sh):
-            if i < n - lookback:
-                break
-            c = candles[i]
-            body = abs(c["c"] - c["o"])
-            upper_wick = c["h"] - max(c["o"], c["c"])
-            if upper_wick > 0 and upper_wick >= wick_ratio * body:
-                return {"low": max(c["o"], c["c"]), "high": c["h"], "i": i}
+    swings = sl if direction == "LONG" else sh
+    # sweep referansı: mumdan ÖNCE oluşmuş swing seviyeleri
+    ref_pool = sl if direction == "LONG" else sh
+
+    for i in reversed(swings):
+        if i < n - lookback:
+            break
+        c = candles[i]
+        body = abs(c["c"] - c["o"])
+
+        if direction == "LONG":
+            wick = min(c["o"], c["c"]) - c["l"]
+            if wick <= 0 or wick < wick_ratio * body:
+                continue
+            # (1) sell-side likidite süpürüldü mü: önceki bir swing dibinin altına indi
+            prior = [candles[j]["l"] for j in ref_pool if j < i]
+            if not prior or c["l"] >= min(prior[-3:] if len(prior) >= 3 else prior):
+                continue
+            zone_low, zone_high = c["l"], min(c["o"], c["c"])
+            # (3) tazelik: sonraki mumlar bölgeyi tüketmemiş olmalı
+            if any(candles[b]["l"] < zone_low for b in range(i + 1, n)):
+                continue
+            return {"low": zone_low, "high": zone_high, "i": i,
+                    "mt": (c["l"] + c["c"]) / 2.0, "swept": True}
+        else:
+            wick = c["h"] - max(c["o"], c["c"])
+            if wick <= 0 or wick < wick_ratio * body:
+                continue
+            prior = [candles[j]["h"] for j in ref_pool if j < i]
+            if not prior or c["h"] <= max(prior[-3:] if len(prior) >= 3 else prior):
+                continue
+            zone_low, zone_high = max(c["o"], c["c"]), c["h"]
+            if any(candles[b]["h"] > zone_high for b in range(i + 1, n)):
+                continue
+            return {"low": zone_low, "high": zone_high, "i": i,
+                    "mt": (c["h"] + c["c"]) / 2.0, "swept": True}
     return None
 
 
@@ -330,6 +391,7 @@ def analyze_smc(candles, now_utc, cfg=None):
     ob = order_block(candles, direction, disp["bar_i"] if disp else None)
     rb = rejection_block(candles, direction, k, cfg.get("rb_lookback", 20),
                          cfg.get("rb_wick_ratio", 1.0))
+    bb = breaker_block(candles, direction, k, cfg.get("breaker_lookback", 40))
 
     # --- Confluence skoru (ağırlıklar config'ten) ---
     w = cfg.get("weights", {})
@@ -361,7 +423,12 @@ def analyze_smc(candles, now_utc, cfg=None):
         confluences.append(f"Order Block {ob['low']:.2f}-{ob['high']:.2f}")
     if rb:
         score += w.get("rejection_block", 1.5)
-        confluences.append(f"Rejection Block {rb['low']:.2f}-{rb['high']:.2f} (fitil reddi)")
+        confluences.append(f"Rejection Block {rb['low']:.2f}-{rb['high']:.2f} "
+                           f"(likidite süpürme + fitil reddi, MT {rb['mt']:.2f})")
+    if bb:
+        score += w.get("breaker_block", 1.5)
+        confluences.append(f"Breaker Block {bb['low']:.2f}-{bb['high']:.2f} (polarite döndü)"
+                           + (" (fiyat içinde)" if bb.get("in_zone") else ""))
     if r is not None:
         if direction == "LONG" and r < cfg.get("rsi_long_max", 75):
             score += w.get("rsi", 0.5)

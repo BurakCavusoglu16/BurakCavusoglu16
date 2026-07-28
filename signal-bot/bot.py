@@ -59,7 +59,9 @@ def build_card(inst, sig, now_tr, news_warn=None):
         f"🧭 HTF bias <b>{sig['direction']}</b> ({sig['trend']}/{sig.get('htf_zone','—')}) "
         f"→ HTF POI {poi_txt} → LTF onay",
         "",
-        f"{arrow} — <b>Giriş ~{fmt(sig['entry'], d)}</b>",
+        f"{arrow} — <b>Giriş ~{fmt(sig['entry'], d)}</b>"
+        + (f"  |  🎯 Rafine limit (RB Mean Threshold): <b>{fmt(sig['entry_mt'], d)}</b>"
+           if sig.get("entry_mt") else ""),
         f"🛑 SL: {fmt(sig['sl'], d)}   (risk ~{fmt(risk, d)} {pip})",
         f"✅ TP1: {fmt(sig['tp1'], d)}   (R:R {sig['rr1']}) → yarıyı kapat, SL girişe",
         f"✅ TP2: {fmt(sig['tp2'], d)}   (R:R {sig['rr2']})",

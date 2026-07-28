@@ -72,6 +72,11 @@ def htf_bias(candles, cfg=None):
             mid = (rb["low"] + rb["high"]) / 2.0
             if (bias == "LONG" and mid <= eq) or (bias == "SHORT" and mid >= eq):
                 pois.append({"kind": "RB", "low": rb["low"], "high": rb["high"], "dir": want})
+        bb = smc.breaker_block(candles, bias, k, cfg.get("breaker_lookback", 40))
+        if bb:
+            mid = (bb["low"] + bb["high"]) / 2.0
+            if (bias == "LONG" and mid <= eq) or (bias == "SHORT" and mid >= eq):
+                pois.append({"kind": "Breaker", "low": bb["low"], "high": bb["high"], "dir": want})
 
     # Aktif POI: fiyat gerçekten içinde VE doğru premium/discount bölgesinde
     active = None
@@ -114,11 +119,12 @@ def ltf_confirmation(candles, bias, cfg=None):
     ob = smc.order_block(candles, bias, disp["bar_i"] if disp else None)
     rb = smc.rejection_block(candles, bias, k, cfg.get("rb_lookback", 20),
                              cfg.get("rb_wick_ratio", 1.0))
+    bb = smc.breaker_block(candles, bias, k, cfg.get("breaker_lookback", 40))
     return {
         "sweep": sweep if sweep_ok else None,
         "choch": ms["choch"] if choch_ok else None,
         "bos": (ms["bos_up"] if bias == "LONG" else ms["bos_down"]),
-        "fvg": fvg, "ob": ob, "rb": rb, "atr": a, "ms": ms,
+        "fvg": fvg, "ob": ob, "rb": rb, "bb": bb, "atr": a, "ms": ms,
     }
 
 
@@ -166,6 +172,14 @@ def analyze_mtf(htf_candles, ltf_candles, now_utc, cfg=None):
         sl = stop_ref + buf
 
     entry = price
+    # ICT rafine giriş: RB varsa Mean Threshold (fitil %50'si) daha iyi R verir.
+    # Sadece fiyatın henüz ulaşmadığı, doğru taraftaki MT'yi limit olarak öner.
+    entry_mt = None
+    if conf["rb"] and conf["rb"].get("mt") is not None:
+        mt = conf["rb"]["mt"]
+        if (bias == "LONG" and sl < mt < price) or (bias == "SHORT" and price < mt < sl):
+            entry_mt = mt
+
     risk = abs(entry - sl)
     if risk <= 0:
         return None
@@ -205,13 +219,18 @@ def analyze_mtf(htf_candles, ltf_candles, now_utc, cfg=None):
         confl.append(f"LTF Order Block {conf['ob']['low']:.2f}-{conf['ob']['high']:.2f}")
     if conf["rb"]:
         score += w.get("ltf_rb", 1.5)
-        confl.append(f"LTF Rejection Block {conf['rb']['low']:.2f}-{conf['rb']['high']:.2f} (fitil reddi)")
+        confl.append(f"LTF Rejection Block {conf['rb']['low']:.2f}-{conf['rb']['high']:.2f} "
+                     f"(likidite süpürme + fitil reddi, MT {conf['rb']['mt']:.2f})")
+    if conf["bb"]:
+        score += w.get("ltf_breaker", 1.5)
+        confl.append(f"LTF Breaker Block {conf['bb']['low']:.2f}-{conf['bb']['high']:.2f} "
+                     "(polarite döndü)")
     score = round(min(score, 10.0), 1)
 
     return {
         "engine": "MTF top-down (HTF bias → LTF entry)",
         "direction": bias,
-        "entry": entry, "sl": sl, "tp1": tp1, "tp2": tp2,
+        "entry": entry, "entry_mt": entry_mt, "sl": sl, "tp1": tp1, "tp2": tp2,
         "rr1": round(abs(tp1 - entry) / risk, 2),
         "rr2": round(abs(tp2 - entry) / risk, 2),
         "confidence": score,
