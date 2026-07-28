@@ -1,0 +1,56 @@
+name: Backtest
+
+# Stratejiyi gerçek geçmiş veriyle test eder (runner'ın açık interneti var).
+# Actions > Backtest > Run workflow ile elle çalıştırılır.
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: "Enstrüman (US100, GER40, JPN225, XAUUSD) — boş bırakırsan hepsi"
+        required: false
+        default: ""
+      ltf:
+        description: "Düşük zaman dilimi (5m, 15m, 1h)"
+        required: false
+        default: "5m"
+      htf:
+        description: "Yüksek zaman dilimi (1h, 4h, 1d)"
+        required: false
+        default: "1h"
+      range:
+        description: "LTF veri aralığı (5m için max 60d)"
+        required: false
+        default: "60d"
+      min_conf:
+        description: "Minimum güven eşiği"
+        required: false
+        default: "6.0"
+      entry:
+        description: "Giriş modu: market | mt (RB Mean Threshold limit)"
+        required: false
+        default: "market"
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Mantık doğrulaması (ağsız)
+        working-directory: signal-bot
+        run: python backtest.py --self-test
+
+      - name: Backtest çalıştır
+        working-directory: signal-bot
+        run: |
+          ARGS="--ltf ${{ inputs.ltf }} --htf ${{ inputs.htf }} --range ${{ inputs.range }} --min-conf ${{ inputs.min_conf }} --entry ${{ inputs.entry }}"
+          if [ -n "${{ inputs.symbol }}" ]; then
+            python backtest.py --symbol "${{ inputs.symbol }}" $ARGS
+          else
+            python backtest.py --all $ARGS
+          fi
