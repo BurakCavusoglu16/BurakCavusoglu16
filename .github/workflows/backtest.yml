@@ -36,6 +36,14 @@ on:
         description: "Giriş modu: market | mt (RB Mean Threshold limit)"
         required: false
         default: "market"
+      min_rr:
+        description: "TP2 R:R alt sınırı (yüksek R:R seçiciliği)"
+        required: false
+        default: "2.0"
+      max_per_day:
+        description: "Günlük işlem tavanı"
+        required: false
+        default: "3"
 
 jobs:
   backtest:
@@ -56,7 +64,8 @@ jobs:
         run: |
           LTF="${{ inputs.ltf }}"; HTF="${{ inputs.htf }}"; RNG="${{ inputs.range }}"
           CONF="${{ inputs.min_conf }}"; ENT="${{ inputs.entry }}"
-          ARGS="--ltf ${LTF:-5m} --htf ${HTF:-1h} --range ${RNG:-60d} --min-conf ${CONF:-6.0} --entry ${ENT:-market}"
+          RR="${{ inputs.min_rr }}"; MPD="${{ inputs.max_per_day }}"
+          ARGS="--ltf ${LTF:-5m} --htf ${HTF:-1h} --range ${RNG:-60d} --min-conf ${CONF:-6.0} --entry ${ENT:-market} --min-rr ${RR:-2.0} --max-per-day ${MPD:-3}"
           if [ -n "${{ inputs.symbol }}" ]; then
             python backtest.py --symbol "${{ inputs.symbol }}" $ARGS
           else

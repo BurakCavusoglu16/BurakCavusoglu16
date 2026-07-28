@@ -42,17 +42,36 @@ def load_config(path=None):
         return json.load(f)
 
 
-def _htf_slice(htf, ts):
-    """HTF mumlarından, zamanı ts'i AŞMAYAN olanları döner (lookahead engeli)."""
-    out = [c for c in htf if c["t"] <= ts]
-    return out
+def _htf_slice(htf, ts, window=400, _ts_cache={}):
+    """HTF mumlarından zamanı ts'i AŞMAYAN son 'window' tanesini döner.
+
+    Lookahead engeli + performans: her barda tüm geçmişi taramak O(n²) yapıyordu;
+    bisect ile kesip kayan pencere kullanıyoruz. Strateji zaten son ~60 bara bakar,
+    bu yüzden sonuç değişmez, süre lineerleşir.
+    """
+    key = id(htf)
+    times = _ts_cache.get(key)
+    if times is None or len(times) != len(htf):
+        times = [c["t"] for c in htf]
+        _ts_cache[key] = times
+    import bisect
+    end = bisect.bisect_right(times, ts)
+    return htf[max(0, end - window):end]
 
 
 def simulate(htf, ltf, cfg, min_conf, entry_mode="market", limit_bars=12,
-             warmup=250, max_hold=120):
-    """Walk-forward simülasyon. (trades, stats) döner."""
+             warmup=250, max_hold=120, min_rr=0.0, max_per_day=None,
+             kz_only=False, ltf_window=400):
+    """Walk-forward simülasyon. (trades, stats) döner.
+
+    Seçicilik filtreleri ("az işlem, yüksek R:R" hedefi için):
+      min_rr      : TP2 R:R'ı bu değerin altındaki kurulumlar atlanır
+      max_per_day : günlük işlem tavanı (ör. 3)
+      kz_only     : sadece kill zone içindeki sinyaller alınır
+    """
     m = cfg["mtf"]
     trades = []
+    per_day = {}
     i = warmup
     n = len(ltf)
 
@@ -64,8 +83,21 @@ def simulate(htf, ltf, cfg, min_conf, entry_mode="market", limit_bars=12,
             i += 1
             continue
 
-        sig = mtf.analyze_mtf(hs, ltf[: i + 1], now_utc, m)
+        # LTF'de de kayan pencere: strateji son ~60 bara bakar, 400 fazlasıyla yeter
+        lo_i = max(0, i + 1 - ltf_window)
+        sig = mtf.analyze_mtf(hs, ltf[lo_i: i + 1], now_utc, m)
         if not sig or sig["confidence"] < min_conf:
+            i += 1
+            continue
+        # --- seçicilik filtreleri ---
+        if min_rr > 0 and sig.get("rr2", 0) < min_rr:
+            i += 1
+            continue
+        if kz_only and not sig.get("kill_zone"):
+            i += 1
+            continue
+        day = now_utc.strftime("%Y-%m-%d")
+        if max_per_day is not None and per_day.get(day, 0) >= max_per_day:
             i += 1
             continue
 
@@ -139,6 +171,7 @@ def simulate(htf, ltf, cfg, min_conf, entry_mode="market", limit_bars=12,
             r_total += r_here * (0.5 if half_closed else 1.0)
             exit_i, exit_reason = b, "TIME"
 
+        per_day[day] = per_day.get(day, 0) + 1
         trades.append({
             "dir": direction, "entry": round(entry, 2), "sl": round(sl, 2),
             "tp1": round(tp1, 2), "tp2": round(tp2, 2),
@@ -152,8 +185,11 @@ def simulate(htf, ltf, cfg, min_conf, entry_mode="market", limit_bars=12,
     return trades, stats(trades)
 
 
-def stats(trades):
-    """İşlem listesinden performans metrikleri."""
+def stats(trades, days=None):
+    """İşlem listesinden performans metrikleri.
+
+    days: veri kaç işlem gününü kapsıyor (günlük işlem sıklığı için).
+    """
     if not trades:
         return {"trades": 0}
     rs = [t["R"] for t in trades]
@@ -167,8 +203,13 @@ def stats(trades):
         eq += r
         peak = max(peak, eq)
         mdd = min(mdd, eq - peak)
+    # işlem günü sayısı: verilmediyse işlemlerin benzersiz tarihlerinden tahmin
+    if days is None:
+        days = len({t["t"][:10] for t in trades if t.get("t")}) or 1
     return {
         "trades": len(rs),
+        "per_day": round(len(rs) / max(days, 1), 2),
+        "days": days,
         "win_rate": round(100.0 * len(wins) / len(rs), 1),
         "total_R": round(sum(rs), 2),
         "avg_R": round(sum(rs) / len(rs), 3),
@@ -185,7 +226,7 @@ def print_report(name, st, trades, show=8):
     if not st.get("trades"):
         print("  İşlem yok (sinyal üretilmedi ya da veri yetersiz).")
         return
-    print(f"  İşlem sayısı   : {st['trades']}")
+    print(f"  İşlem sayısı   : {st['trades']}   ({st['per_day']} işlem/gün, {st['days']} gün)")
     print(f"  Kazanma oranı  : %{st['win_rate']}")
     print(f"  Toplam R       : {st['total_R']}")
     print(f"  Ortalama R     : {st['avg_R']}  (beklenti/işlem)")
@@ -233,6 +274,12 @@ def main():
     ap.add_argument("--htf-range", default="2y")
     ap.add_argument("--min-conf", type=float, default=None)
     ap.add_argument("--entry", choices=["market", "mt"], default="market")
+    ap.add_argument("--min-rr", type=float, default=0.0,
+                    help="TP2 R:R alt sınırı (yüksek R:R seçiciliği)")
+    ap.add_argument("--max-per-day", type=int, default=None,
+                    help="günlük işlem tavanı (ör. 3)")
+    ap.add_argument("--kz-only", action="store_true",
+                    help="sadece kill zone içindeki sinyaller")
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
 
@@ -263,8 +310,11 @@ def main():
             print(f"[uyarı] {inst['name']} verisi çekilemedi: {e}", file=sys.stderr)
             continue
         print(f"\n[{inst['name']}] HTF {htf_iv}: {len(htf)} bar | LTF {ltf_iv}: {len(ltf)} bar "
-              f"| min_conf={min_conf} | giriş={args.entry}")
-        trades, st = simulate(htf, ltf, cfg, min_conf, entry_mode=args.entry)
+              f"| min_conf={min_conf} | giriş={args.entry} | min_rr={args.min_rr} "
+              f"| max/gün={args.max_per_day} | kz_only={args.kz_only}")
+        trades, st = simulate(htf, ltf, cfg, min_conf, entry_mode=args.entry,
+                              min_rr=args.min_rr, max_per_day=args.max_per_day,
+                              kz_only=args.kz_only)
         print_report(f"{inst['name']} — {ltf_iv} / {htf_iv}", st, trades)
         all_trades += trades
 
